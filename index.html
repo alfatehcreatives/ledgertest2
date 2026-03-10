@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asim's Ledger</title>
+    <!-- CDN Assets -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta name="theme-color" content="#000000">
+    <style>
+        :root {
+            --bg: #000000;
+            --glass: rgba(24, 24, 27, 0.85);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        body {
+            background-color: var(--bg);
+            min-height: 100vh;
+            font-family: 'Inter', system-ui, sans-serif;
+            color: #f1f5f9;
+        }
+        .glass-panel {
+            background: var(--glass);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--border);
+        }
+        .tab-active {
+            background: #ffffff !important;
+            color: #000000 !important;
+            box-shadow: 0 0 20px rgba(255,255,255,0.15);
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .animate-pop { animation: pop 0.2s ease-out; }
+        @keyframes pop {
+            0% { transform: scale(0.98); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <header class="w-full max-w-5xl mx-auto pt-8 px-6 pb-4">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h1 id="view-title" class="text-3xl font-black tracking-tight text-white">Memos</h1>
+                <p class="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">Asim's Ledger</p>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="requestNotificationPermission()" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-bell"></i>
+                </button>
+                <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-black text-xs font-bold shadow-lg">AL</div>
+            </div>
+        </div>
+        
+        <div class="relative group max-w-md">
+            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 text-sm"></i>
+            <input type="text" id="search-input" oninput="render()" placeholder="Search records..." 
+                class="w-full bg-zinc-900 border border-zinc-800 shadow-inner py-4 pl-12 pr-4 rounded-2xl text-sm text-white focus:outline-none focus:ring-1 ring-white/20 transition-all">
+        </div>
+    </header>
+
+    <main id="content-area" class="flex-1 w-full max-w-5xl mx-auto px-6 pb-32 overflow-y-auto no-scrollbar">
+    </main>
+
+    <div class="fixed bottom-0 left-0 right-0 p-6 flex flex-col items-center pointer-events-none">
+        <button onclick="openModal()" class="pointer-events-auto mb-6 w-14 h-14 bg-white text-black rounded-full shadow-[0_0_25px_rgba(255,255,255,0.2)] flex items-center justify-center text-xl hover:scale-110 active:scale-95 transition-all">
+            <i class="fa-solid fa-plus"></i>
+        </button>
+
+        <nav class="pointer-events-auto w-full max-w-md h-16 glass-panel rounded-full flex items-center justify-around px-2 shadow-2xl">
+            <button onclick="setView('memos')" id="nav-memos" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-book-open"></i></button>
+            <button onclick="setView('projects')" id="nav-projects" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-diagram-project"></i></button>
+            <button onclick="setView('ledger')" id="nav-ledger" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-wallet"></i></button>
+            <button onclick="setView('tasks')" id="nav-tasks" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-check-double"></i></button>
+        </nav>
+    </div>
+
+    <div id="modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden items-center justify-center p-6 z-50">
+        <div class="bg-zinc-900 w-full max-w-sm rounded-[2rem] p-8 animate-pop shadow-2xl border border-zinc-800">
+            <h2 class="text-xl font-bold mb-6 text-white" id="modal-title">New Entry</h2>
+            <div id="modal-fields" class="space-y-4"></div>
+            <div class="mt-8 flex gap-3">
+                <button onclick="closeModal()" class="flex-1 py-4 rounded-2xl bg-zinc-800 font-bold text-zinc-400 hover:bg-zinc-700 transition-colors">Cancel</button>
+                <button onclick="saveItem()" class="flex-1 py-4 rounded-2xl bg-white text-black font-bold shadow-lg hover:bg-slate-100 transition-colors">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let state = JSON.parse(localStorage.getItem('asim_ledger_v3')) || {
+            tasks: [], memos: [], ledger: [], projects: []
+        };
+
+        let currentView = 'memos';
+
+        function requestNotificationPermission() {
+            if ("Notification" in window) {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        new Notification("Asim's Ledger", { body: "Notifications enabled!" });
+                    }
+                });
+            }
+        }
+
+        function saveToLocal() {
+            localStorage.setItem('asim_ledger_v3', JSON.stringify(state));
+            render();
+        }
+
+        function setView(view) {
+            currentView = view;
+            const titles = { memos: 'Memos', projects: 'Projects', ledger: 'Spendature', tasks: 'Tasks' };
+            const titleEl = document.getElementById('view-title');
+            if (titleEl) titleEl.innerText = titles[view];
+            
+            ['memos', 'projects', 'ledger', 'tasks'].forEach(v => {
+                const navBtn = document.getElementById(`nav-${v}`);
+                if (navBtn) {
+                    navBtn.className = v === view ? 
+                        'w-12 h-12 rounded-full flex items-center justify-center tab-active' : 
+                        'w-12 h-12 rounded-full flex items-center justify-center text-zinc-500 hover:text-zinc-300';
+                }
+            });
+            render();
+        }
+
+        function render() {
+            const container = document.getElementById('content-area');
+            if (!container) return;
+            const searchInput = document.getElementById('search-input');
+            const search = searchInput ? searchInput.value.toLowerCase() : '';
+            container.innerHTML = '';
+
+            const filterItems = (arr, key) => arr.filter(item => (item[key] || '').toLowerCase().includes(search));
+
+            if (currentView === 'memos') {
+                filterItems(state.memos, 'title').forEach((m) => {
+                    container.innerHTML += `
+                        <div class="bg-zinc-900/60 p-6 rounded-3xl mb-4 shadow-sm border border-zinc-800/50">
+                            <h3 class="font-bold text-lg mb-2 text-white">${m.title}</h3>
+                            <p class="text-sm text-zinc-400 leading-relaxed">${m.body}</p>
+                        </div>`;
+                });
+            } else if (currentView === 'projects') {
+                state.projects.forEach((p, i) => {
+                    if (search && !p.name.toLowerCase().includes(search)) return;
+                    let additions = p.items.filter(it => it.type === 'add').reduce((a, b) => a + parseFloat(b.cost || 0), 0);
+                    let subtractions = p.items.filter(it => it.type === 'sub').reduce((a, b) => a + parseFloat(b.cost || 0), 0);
+                    let remaining = (p.budget || 0) + additions - subtractions;
+                    
+                    container.innerHTML += `
+                        <div class="bg-zinc-900/60 p-6 rounded-3xl mb-6 border border-zinc-800/50">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-black text-xl text-white">${p.name}</h3>
+                                <button onclick="deleteProject(${i})" class="text-zinc-600 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 text-[10px] font-bold uppercase tracking-wider mb-4 text-center">
+                                <div class="bg-black/50 p-2 rounded-xl text-zinc-500">Base: ${p.budget}</div>
+                                <div class="bg-emerald-950/20 p-2 rounded-xl text-emerald-400">Add: +${additions}</div>
+                                <div class="bg-red-950/20 p-2 rounded-xl text-red-400">Spent: -${subtractions}</div>
+                            </div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs font-bold text-zinc-600 uppercase">Project Balance</span>
+                                <span class="text-sm font-black ${remaining < 0 ? 'text-red-400' : 'text-white'}">${remaining}</span>
+                            </div>
+                            <div class="w-full bg-black h-2 rounded-full overflow-hidden mb-6">
+                                <div class="bg-white h-full" style="width: ${Math.min((subtractions/((p.budget || 0) + additions || 1))*100, 100)}%"></div>
+                            </div>
+                            <div class="space-y-2 border-t border-zinc-800 pt-4 max-h-40 overflow-y-auto no-scrollbar">
+                                ${p.items.map(item => `
+                                    <div class="flex justify-between text-xs py-1">
+                                        <span class="text-zinc-500">${item.label}</span>
+                                        <span class="${item.type === 'add' ? 'text-emerald-400' : 'text-zinc-200'} font-bold">
+                                            ${item.type === 'add' ? '+' : '-'}${item.cost}
+                                        </span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="flex gap-2 mt-4">
+                                <button onclick="addProjTx(${i}, 'add')" class="flex-1 py-3 rounded-xl bg-emerald-900/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest border border-emerald-900/30">+ Add Funds</button>
+                                <button onclick="addProjTx(${i}, 'sub')" class="flex-1 py-3 rounded-xl bg-red-900/20 text-red-400 text-[10px] font-black uppercase tracking-widest border border-red-900/30">- Add Expense</button>
+                            </div>
+                        </div>`;
+                });
+            } else if (currentView === 'ledger') {
+                let income = state.ledger.filter(l => l.type === 'income').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
+                let expense = state.ledger.filter(l => l.type === 'expense').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
+                container.innerHTML = `
+                    <div class="bg-white text-black p-8 rounded-3xl mb-6 shadow-2xl flex flex-col justify-between h-40">
+                        <div><p class="text-[10px] font-bold uppercase opacity-60 tracking-widest">Net Cashflow</p><h2 class="text-4xl font-black">${(income - expense).toLocaleString()}</h2></div>
+                        <div class="flex gap-8 border-t border-zinc-100 pt-4">
+                             <div><span class="block text-[10px] opacity-60 uppercase font-bold">Total In</span><span class="text-emerald-600 font-bold">+${income}</span></div>
+                             <div><span class="block text-[10px] opacity-60 uppercase font-bold">Total Out</span><span class="text-red-600 font-bold">-${expense}</span></div>
+                        </div>
+                    </div>
+                `;
+                filterItems(state.ledger, 'item').forEach((l) => {
+                    container.innerHTML += `
+                        <div class="bg-zinc-900/60 p-4 rounded-2xl mb-3 flex justify-between items-center border border-zinc-800/30">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full ${l.type === 'income' ? 'bg-emerald-400/10 text-emerald-400' : 'bg-red-400/10 text-red-400'} flex items-center justify-center">
+                                    <i class="fa-solid ${l.type === 'income' ? 'fa-plus' : 'fa-minus'} text-xs"></i>
+                                </div>
+                                <span class="font-bold text-zinc-200">${l.item}</span>
+                            </div>
+                            <span class="font-black ${l.type === 'income' ? 'text-emerald-400' : 'text-white'}">${l.type === 'income' ? '+' : '-'}${l.amount}</span>
+                        </div>`;
+                });
+            } else if (currentView === 'tasks') {
+                filterItems(state.tasks, 'text').forEach((t) => {
+                    container.innerHTML += `
+                        <div class="bg-zinc-900/60 p-4 rounded-2xl mb-3 flex items-center justify-between border-l-4 ${t.done ? 'border-zinc-800' : 'border-white'}">
+                            <div class="flex items-center gap-4">
+                                <button onclick="toggleTask(${state.tasks.indexOf(t)})" class="w-6 h-6 rounded-full border-2 border-zinc-700 flex items-center justify-center ${t.done ? 'bg-white border-white text-black' : ''}">
+                                    ${t.done ? '<i class="fa-solid fa-check text-[10px]"></i>' : ''}
+                                </button>
+                                <span class="text-sm font-medium ${t.done ? 'line-through text-zinc-600' : 'text-zinc-200'}">${t.text}</span>
+                            </div>
+                            <span class="text-[9px] font-black uppercase bg-black px-2 py-1 rounded text-zinc-500">${t.date || 'DUE'}</span>
+                        </div>`;
+                });
+            }
+        }
+
+        function openModal() {
+            const fields = document.getElementById('modal-fields');
+            const title = document.getElementById('modal-title');
+            if (!fields || !title) return;
+            fields.innerHTML = '';
+            
+            const inputClass = "w-full p-4 rounded-2xl bg-black text-white border-zinc-800 border focus:ring-1 ring-white/20 transition-all";
+
+            if (currentView === 'memos') {
+                title.innerText = "New Memo";
+                fields.innerHTML = `<input id="m-t" placeholder="Subject" class="${inputClass}"><textarea id="m-b" placeholder="Content..." class="${inputClass} h-32"></textarea>`;
+            } else if (currentView === 'projects') {
+                title.innerText = "Start Project";
+                fields.innerHTML = `<input id="p-n" placeholder="Project Title" class="${inputClass}"><input id="p-b" type="number" placeholder="Total Budget" class="${inputClass}">`;
+            } else if (currentView === 'ledger') {
+                title.innerText = "Ledger Entry";
+                fields.innerHTML = `<select id="l-t" class="${inputClass}"><option value="expense">Expense (-)</option><option value="income">Income (+)</option></select><input id="l-i" placeholder="Transaction for?" class="${inputClass}"><input id="l-a" type="number" placeholder="Amount" class="${inputClass}">`;
+            } else if (currentView === 'tasks') {
+                title.innerText = "Task Entry";
+                fields.innerHTML = `<input id="t-x" placeholder="What to do?" class="${inputClass}"><input id="t-d" type="date" class="${inputClass}">`;
+            }
+            document.getElementById('modal').classList.remove('hidden');
+            document.getElementById('modal').classList.add('flex');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        function saveItem() {
+            if (currentView === 'memos') {
+                const t = document.getElementById('m-t');
+                const b = document.getElementById('m-b');
+                if (t && b) state.memos.unshift({ title: t.value, body: b.value });
+            } else if (currentView === 'projects') {
+                const n = document.getElementById('p-n');
+                const b = document.getElementById('p-b');
+                if (n && b) state.projects.unshift({ name: n.value, budget: parseFloat(b.value) || 0, items: [] });
+            } else if (currentView === 'ledger') {
+                const i = document.getElementById('l-i');
+                const a = document.getElementById('l-a');
+                const t = document.getElementById('l-t');
+                if (i && a && t) state.ledger.unshift({ item: i.value, amount: a.value, type: t.value });
+            } else if (currentView === 'tasks') {
+                const x = document.getElementById('t-x');
+                const d = document.getElementById('t-d');
+                if (x && d) {
+                    const text = x.value;
+                    state.tasks.unshift({ text, date: d.value, done: false });
+                    if (Notification.permission === "granted") new Notification("Task Set", { body: text });
+                }
+            }
+            saveToLocal();
+            closeModal();
+        }
+
+        function addProjTx(idx, type) {
+            const label = prompt(type === 'sub' ? "Describe Expense:" : "Describe Addition:");
+            const cost = prompt("Amount?");
+            if (label && cost) {
+                state.projects[idx].items.unshift({ label, cost: parseFloat(cost), type });
+                saveToLocal();
+            }
+        }
+
+        function toggleTask(idx) {
+            if (state.tasks[idx]) {
+                state.tasks[idx].done = !state.tasks[idx].done;
+                if (state.tasks[idx].done && Notification.permission === "granted") {
+                    new Notification("Task Done", { body: state.tasks[idx].text });
+                }
+                saveToLocal();
+            }
+        }
+
+        function deleteProject(idx) {
+            if(confirm("Permanently delete this project?")) {
+                state.projects.splice(idx, 1);
+                saveToLocal();
+            }
+        }
+
+        window.onload = () => setView('memos');
+    </script>
+</body>
+</html>
