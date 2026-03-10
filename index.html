@@ -7,6 +7,7 @@
     <!-- CDN Assets -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <style>
         :root {
@@ -90,6 +91,14 @@
     </div>
 
     <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('SW Registered'))
+                    .catch(err => console.log('SW Failed', err));
+            });
+        }
+
         let state = JSON.parse(localStorage.getItem('asim_ledger_v3')) || {
             tasks: [], memos: [], ledger: [], projects: []
         };
