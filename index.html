@@ -7,7 +7,7 @@
     <!-- CDN Assets -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="manifest" href="./manifest.json">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <meta name="theme-color" content="#000000">
     <style>
         :root {
@@ -71,11 +71,12 @@
             <i class="fa-solid fa-plus"></i>
         </button>
 
-        <nav class="pointer-events-auto w-full max-w-md h-16 glass-panel rounded-full flex items-center justify-around px-2 shadow-2xl">
+        <nav class="pointer-events-auto w-full max-w-lg h-16 glass-panel rounded-full flex items-center justify-around px-2 shadow-2xl">
             <button onclick="setView('memos')" id="nav-memos" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-book-open"></i></button>
             <button onclick="setView('projects')" id="nav-projects" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-diagram-project"></i></button>
             <button onclick="setView('ledger')" id="nav-ledger" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-wallet"></i></button>
             <button onclick="setView('tasks')" id="nav-tasks" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-check-double"></i></button>
+            <button onclick="setView('dreams')" id="nav-dreams" class="w-12 h-12 rounded-full flex items-center justify-center transition-all"><i class="fa-solid fa-cloud"></i></button>
         </nav>
     </div>
 
@@ -91,16 +92,8 @@
     </div>
 
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js')
-                    .then(reg => console.log('SW Registered'))
-                    .catch(err => console.log('SW Failed', err));
-            });
-        }
-
         let state = JSON.parse(localStorage.getItem('asim_ledger_v3')) || {
-            tasks: [], memos: [], ledger: [], projects: []
+            tasks: [], memos: [], ledger: [], projects: [], dreams: []
         };
 
         let currentView = 'memos';
@@ -122,11 +115,11 @@
 
         function setView(view) {
             currentView = view;
-            const titles = { memos: 'Memos', projects: 'Projects', ledger: 'Spendature', tasks: 'Tasks' };
+            const titles = { memos: 'Memos', projects: 'Projects', ledger: 'Spendature', tasks: 'Tasks', dreams: 'Dreams' };
             const titleEl = document.getElementById('view-title');
             if (titleEl) titleEl.innerText = titles[view];
             
-            ['memos', 'projects', 'ledger', 'tasks'].forEach(v => {
+            ['memos', 'projects', 'ledger', 'tasks', 'dreams'].forEach(v => {
                 const navBtn = document.getElementById(`nav-${v}`);
                 if (navBtn) {
                     navBtn.className = v === view ? 
@@ -147,10 +140,18 @@
             const filterItems = (arr, key) => arr.filter(item => (item[key] || '').toLowerCase().includes(search));
 
             if (currentView === 'memos') {
-                filterItems(state.memos, 'title').forEach((m) => {
+                state.memos.forEach((m, i) => {
+                    if (search && !m.title.toLowerCase().includes(search)) return;
                     container.innerHTML += `
-                        <div class="bg-zinc-900/60 p-6 rounded-3xl mb-4 shadow-sm border border-zinc-800/50">
-                            <h3 class="font-bold text-lg mb-2 text-white">${m.title}</h3>
+                        <div class="bg-zinc-900/60 p-6 rounded-3xl mb-4 shadow-sm border border-zinc-800/50 group">
+                            <div class="flex justify-between items-start mb-2">
+                                <h3 class="font-bold text-lg text-white">${m.title}</h3>
+                                <div class="flex gap-2">
+                                    <button onclick="moveMemo(${i}, -1)" class="text-zinc-600 hover:text-zinc-200"><i class="fa-solid fa-chevron-up"></i></button>
+                                    <button onclick="moveMemo(${i}, 1)" class="text-zinc-600 hover:text-zinc-200"><i class="fa-solid fa-chevron-down"></i></button>
+                                    <button onclick="deleteMemo(${i})" class="text-zinc-600 hover:text-red-400 ml-2"><i class="fa-solid fa-trash-can"></i></button>
+                                </div>
+                            </div>
                             <p class="text-sm text-zinc-400 leading-relaxed">${m.body}</p>
                         </div>`;
                 });
@@ -195,36 +196,84 @@
                             </div>
                         </div>`;
                 });
+            } else if (currentView === 'dreams') {
+                state.dreams.forEach((d, i) => {
+                    if (search && !d.name.toLowerCase().includes(search)) return;
+                    let saved = (d.items || []).reduce((a, b) => a + parseFloat(b.amount || 0), 0);
+                    let percent = Math.min((saved / (d.goal || 1)) * 100, 100);
+                    
+                    container.innerHTML += `
+                        <div class="bg-zinc-900/60 p-6 rounded-3xl mb-6 border border-zinc-800/50">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 class="font-black text-xl text-white uppercase italic">${d.name}</h3>
+                                    <p class="text-[10px] text-zinc-500 font-bold uppercase mt-1">Goal: ${d.goal.toLocaleString()}</p>
+                                </div>
+                                <button onclick="deleteDream(${i})" class="text-zinc-600 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>
+                            </div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-tighter">Total Saved</span>
+                                <span class="text-lg font-black text-white">${saved.toLocaleString()}</span>
+                            </div>
+                            <div class="w-full bg-black h-3 rounded-full overflow-hidden mb-6 p-[2px]">
+                                <div class="bg-gradient-to-r from-emerald-500 to-white h-full rounded-full transition-all duration-1000" style="width: ${percent}%"></div>
+                            </div>
+                            <div class="space-y-2 border-t border-zinc-800 pt-4 max-h-32 overflow-y-auto no-scrollbar">
+                                ${(d.items || []).map(item => `
+                                    <div class="flex justify-between text-[11px] py-1 border-b border-zinc-800/30">
+                                        <span class="text-zinc-500">${item.date}</span>
+                                        <span class="text-emerald-400 font-bold">+${item.amount}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <button onclick="addDreamSaving(${i})" class="w-full mt-4 py-4 rounded-2xl bg-white text-black text-xs font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-white/5">
+                                Add To Savings
+                            </button>
+                        </div>`;
+                });
             } else if (currentView === 'ledger') {
                 let income = state.ledger.filter(l => l.type === 'income').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
                 let expense = state.ledger.filter(l => l.type === 'expense').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
                 container.innerHTML = `
-                    <div class="bg-white text-black p-8 rounded-3xl mb-6 shadow-2xl flex flex-col justify-between h-40">
-                        <div><p class="text-[10px] font-bold uppercase opacity-60 tracking-widest">Net Cashflow</p><h2 class="text-4xl font-black">${(income - expense).toLocaleString()}</h2></div>
-                        <div class="flex gap-8 border-t border-zinc-100 pt-4">
-                             <div><span class="block text-[10px] opacity-60 uppercase font-bold">Total In</span><span class="text-emerald-600 font-bold">+${income}</span></div>
-                             <div><span class="block text-[10px] opacity-60 uppercase font-bold">Total Out</span><span class="text-red-600 font-bold">-${expense}</span></div>
+                    <div class="bg-white text-black p-8 rounded-3xl mb-6 shadow-2xl relative overflow-hidden">
+                        <div class="relative z-10 flex flex-col justify-between h-32">
+                            <div><p class="text-[10px] font-bold uppercase opacity-60 tracking-widest">Net Cashflow</p><h2 class="text-4xl font-black">${(income - expense).toLocaleString()}</h2></div>
+                            <div class="flex justify-between items-end">
+                                <div class="flex gap-8 border-t border-zinc-100 pt-4 w-full">
+                                    <div><span class="block text-[10px] opacity-60 uppercase font-bold">Total In</span><span class="text-emerald-600 font-bold">+${income}</span></div>
+                                    <div><span class="block text-[10px] opacity-60 uppercase font-bold">Total Out</span><span class="text-red-600 font-bold">-${expense}</span></div>
+                                </div>
+                                <button onclick="downloadLedgerPDF()" class="p-2 text-zinc-400 hover:text-black transition-colors" title="Download PDF"><i class="fa-solid fa-file-pdf text-xl"></i></button>
+                            </div>
                         </div>
                     </div>
                 `;
-                filterItems(state.ledger, 'item').forEach((l) => {
+                state.ledger.forEach((l, i) => {
+                    if (search && !l.item.toLowerCase().includes(search)) return;
                     container.innerHTML += `
                         <div class="bg-zinc-900/60 p-4 rounded-2xl mb-3 flex justify-between items-center border border-zinc-800/30">
                             <div class="flex items-center gap-3">
                                 <div class="w-10 h-10 rounded-full ${l.type === 'income' ? 'bg-emerald-400/10 text-emerald-400' : 'bg-red-400/10 text-red-400'} flex items-center justify-center">
                                     <i class="fa-solid ${l.type === 'income' ? 'fa-plus' : 'fa-minus'} text-xs"></i>
                                 </div>
-                                <span class="font-bold text-zinc-200">${l.item}</span>
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-zinc-200">${l.item}</span>
+                                    <span class="text-[9px] text-zinc-600 uppercase font-bold">${l.date || ''}</span>
+                                </div>
                             </div>
-                            <span class="font-black ${l.type === 'income' ? 'text-emerald-400' : 'text-white'}">${l.type === 'income' ? '+' : '-'}${l.amount}</span>
+                            <div class="flex items-center gap-4">
+                                <span class="font-black ${l.type === 'income' ? 'text-emerald-400' : 'text-white'}">${l.type === 'income' ? '+' : '-'}${l.amount}</span>
+                                <button onclick="deleteLedgerItem(${i})" class="text-zinc-700 hover:text-red-400"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
                         </div>`;
                 });
             } else if (currentView === 'tasks') {
                 filterItems(state.tasks, 'text').forEach((t) => {
+                    const idx = state.tasks.indexOf(t);
                     container.innerHTML += `
                         <div class="bg-zinc-900/60 p-4 rounded-2xl mb-3 flex items-center justify-between border-l-4 ${t.done ? 'border-zinc-800' : 'border-white'}">
                             <div class="flex items-center gap-4">
-                                <button onclick="toggleTask(${state.tasks.indexOf(t)})" class="w-6 h-6 rounded-full border-2 border-zinc-700 flex items-center justify-center ${t.done ? 'bg-white border-white text-black' : ''}">
+                                <button onclick="toggleTask(${idx})" class="w-6 h-6 rounded-full border-2 border-zinc-700 flex items-center justify-center ${t.done ? 'bg-white border-white text-black' : ''}">
                                     ${t.done ? '<i class="fa-solid fa-check text-[10px]"></i>' : ''}
                                 </button>
                                 <span class="text-sm font-medium ${t.done ? 'line-through text-zinc-600' : 'text-zinc-200'}">${t.text}</span>
@@ -249,6 +298,9 @@
             } else if (currentView === 'projects') {
                 title.innerText = "Start Project";
                 fields.innerHTML = `<input id="p-n" placeholder="Project Title" class="${inputClass}"><input id="p-b" type="number" placeholder="Total Budget" class="${inputClass}">`;
+            } else if (currentView === 'dreams') {
+                title.innerText = "Dream Goal";
+                fields.innerHTML = `<input id="d-n" placeholder="What's your dream?" class="${inputClass}"><input id="d-g" type="number" placeholder="Target Amount" class="${inputClass}">`;
             } else if (currentView === 'ledger') {
                 title.innerText = "Ledger Entry";
                 fields.innerHTML = `<select id="l-t" class="${inputClass}"><option value="expense">Expense (-)</option><option value="income">Income (+)</option></select><input id="l-i" placeholder="Transaction for?" class="${inputClass}"><input id="l-a" type="number" placeholder="Amount" class="${inputClass}">`;
@@ -269,30 +321,44 @@
         }
 
         function saveItem() {
+            const now = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
             if (currentView === 'memos') {
                 const t = document.getElementById('m-t');
                 const b = document.getElementById('m-b');
-                if (t && b) state.memos.unshift({ title: t.value, body: b.value });
+                if (t && b && t.value) state.memos.unshift({ title: t.value, body: b.value });
             } else if (currentView === 'projects') {
                 const n = document.getElementById('p-n');
                 const b = document.getElementById('p-b');
-                if (n && b) state.projects.unshift({ name: n.value, budget: parseFloat(b.value) || 0, items: [] });
+                if (n && b && n.value) state.projects.unshift({ name: n.value, budget: parseFloat(b.value) || 0, items: [] });
+            } else if (currentView === 'dreams') {
+                const n = document.getElementById('d-n');
+                const g = document.getElementById('d-g');
+                if (n && g && n.value) state.dreams.unshift({ name: n.value, goal: parseFloat(g.value) || 0, items: [] });
             } else if (currentView === 'ledger') {
                 const i = document.getElementById('l-i');
                 const a = document.getElementById('l-a');
                 const t = document.getElementById('l-t');
-                if (i && a && t) state.ledger.unshift({ item: i.value, amount: a.value, type: t.value });
+                if (i && a && t && i.value) state.ledger.unshift({ item: i.value, amount: a.value, type: t.value, date: now });
             } else if (currentView === 'tasks') {
                 const x = document.getElementById('t-x');
                 const d = document.getElementById('t-d');
-                if (x && d) {
-                    const text = x.value;
-                    state.tasks.unshift({ text, date: d.value, done: false });
-                    if (Notification.permission === "granted") new Notification("Task Set", { body: text });
+                if (x && x.value) {
+                    state.tasks.unshift({ text: x.value, date: d.value, done: false });
+                    if (Notification.permission === "granted") new Notification("Task Set", { body: x.value });
                 }
             }
             saveToLocal();
             closeModal();
+        }
+
+        function addDreamSaving(idx) {
+            const amount = prompt("How much did you save today?");
+            if (amount && !isNaN(amount)) {
+                const now = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                if(!state.dreams[idx].items) state.dreams[idx].items = [];
+                state.dreams[idx].items.unshift({ amount: parseFloat(amount), date: now });
+                saveToLocal();
+            }
         }
 
         function addProjTx(idx, type) {
@@ -319,6 +385,71 @@
                 state.projects.splice(idx, 1);
                 saveToLocal();
             }
+        }
+
+        function deleteDream(idx) {
+            if(confirm("Let go of this dream?")) {
+                state.dreams.splice(idx, 1);
+                saveToLocal();
+            }
+        }
+
+        function deleteMemo(idx) {
+            if(confirm("Delete this memo?")) {
+                state.memos.splice(idx, 1);
+                saveToLocal();
+            }
+        }
+
+        function moveMemo(idx, direction) {
+            const target = idx + direction;
+            if (target >= 0 && target < state.memos.length) {
+                const temp = state.memos[idx];
+                state.memos[idx] = state.memos[target];
+                state.memos[target] = temp;
+                saveToLocal();
+            }
+        }
+
+        function deleteLedgerItem(idx) {
+            state.ledger.splice(idx, 1);
+            saveToLocal();
+        }
+
+        async function downloadLedgerPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(22);
+            doc.text("Asim's Ledger - Spendature Report", 14, 20);
+            
+            let income = state.ledger.filter(l => l.type === 'income').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
+            let expense = state.ledger.filter(l => l.type === 'expense').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
+            
+            doc.setFontSize(12);
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+            doc.text(`Total Income: +${income}`, 14, 40);
+            doc.text(`Total Expense: -${expense}`, 14, 46);
+            doc.text(`Net Balance: ${(income - expense).toLocaleString()}`, 14, 52);
+            
+            doc.line(14, 58, 196, 58);
+            
+            let y = 70;
+            doc.setFontSize(10);
+            doc.text("Date", 14, 65);
+            doc.text("Description", 45, 65);
+            doc.text("Amount", 170, 65);
+            
+            state.ledger.forEach((item) => {
+                if (y > 280) { doc.addPage(); y = 20; }
+                doc.text(item.date || "-", 14, y);
+                doc.text(item.item, 45, y);
+                const prefix = item.type === 'income' ? '+' : '-';
+                doc.text(`${prefix}${item.amount}`, 170, y);
+                y += 10;
+            });
+            
+            doc.save(`Asim_Ledger_Report_${Date.now()}.pdf`);
         }
 
         window.onload = () => setView('memos');
