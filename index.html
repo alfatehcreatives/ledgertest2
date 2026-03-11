@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Asim's Ledger</title>
+    
+    <!-- PWA Support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Asim Ledger">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/583/583985.png">
+    
     <!-- CDN Assets -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -20,6 +27,7 @@
             min-height: 100vh;
             font-family: 'Inter', system-ui, sans-serif;
             color: #f1f5f9;
+            overscroll-behavior-y: contain;
         }
         .glass-panel {
             background: var(--glass);
@@ -92,6 +100,19 @@
     </div>
 
     <script>
+        // Service Worker Registration for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `
+                    self.addEventListener('install', e => self.skipWaiting());
+                    self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+                `;
+                const blob = new Blob([swCode], { type: 'text/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl).catch(() => {});
+            });
+        }
+
         let state = JSON.parse(localStorage.getItem('asim_ledger_v3')) || {
             tasks: [], memos: [], ledger: [], projects: [], dreams: []
         };
@@ -158,8 +179,8 @@
             } else if (currentView === 'projects') {
                 state.projects.forEach((p, i) => {
                     if (search && !p.name.toLowerCase().includes(search)) return;
-                    let additions = p.items.filter(it => it.type === 'add').reduce((a, b) => a + parseFloat(b.cost || 0), 0);
-                    let subtractions = p.items.filter(it => it.type === 'sub').reduce((a, b) => a + parseFloat(b.cost || 0), 0);
+                    let additions = (p.items || []).filter(it => it.type === 'add').reduce((a, b) => a + parseFloat(b.cost || 0), 0);
+                    let subtractions = (p.items || []).filter(it => it.type === 'sub').reduce((a, b) => a + parseFloat(b.cost || 0), 0);
                     let remaining = (p.budget || 0) + additions - subtractions;
                     
                     container.innerHTML += `
@@ -181,7 +202,7 @@
                                 <div class="bg-white h-full" style="width: ${Math.min((subtractions/((p.budget || 0) + additions || 1))*100, 100)}%"></div>
                             </div>
                             <div class="space-y-2 border-t border-zinc-800 pt-4 max-h-40 overflow-y-auto no-scrollbar">
-                                ${p.items.map(item => `
+                                ${(p.items || []).map(item => `
                                     <div class="flex justify-between text-xs py-1">
                                         <span class="text-zinc-500">${item.label}</span>
                                         <span class="${item.type === 'add' ? 'text-emerald-400' : 'text-zinc-200'} font-bold">
@@ -365,6 +386,7 @@
             const label = prompt(type === 'sub' ? "Describe Expense:" : "Describe Addition:");
             const cost = prompt("Amount?");
             if (label && cost) {
+                if(!state.projects[idx].items) state.projects[idx].items = [];
                 state.projects[idx].items.unshift({ label, cost: parseFloat(cost), type });
                 saveToLocal();
             }
@@ -419,27 +441,21 @@
         async function downloadLedgerPDF() {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
-            
             doc.setFontSize(22);
             doc.text("Asim's Ledger - Spendature Report", 14, 20);
-            
             let income = state.ledger.filter(l => l.type === 'income').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
             let expense = state.ledger.filter(l => l.type === 'expense').reduce((a, b) => a + parseFloat(b.amount || 0), 0);
-            
             doc.setFontSize(12);
             doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
             doc.text(`Total Income: +${income}`, 14, 40);
             doc.text(`Total Expense: -${expense}`, 14, 46);
             doc.text(`Net Balance: ${(income - expense).toLocaleString()}`, 14, 52);
-            
             doc.line(14, 58, 196, 58);
-            
             let y = 70;
             doc.setFontSize(10);
             doc.text("Date", 14, 65);
             doc.text("Description", 45, 65);
             doc.text("Amount", 170, 65);
-            
             state.ledger.forEach((item) => {
                 if (y > 280) { doc.addPage(); y = 20; }
                 doc.text(item.date || "-", 14, y);
@@ -448,7 +464,6 @@
                 doc.text(`${prefix}${item.amount}`, 170, y);
                 y += 10;
             });
-            
             doc.save(`Asim_Ledger_Report_${Date.now()}.pdf`);
         }
 
@@ -456,4 +471,3 @@
     </script>
 </body>
 </html>
-
